@@ -1,4 +1,4 @@
-# 06 · Retail Store Analytics
+# Retail Store Analytics
 
 **Module:** SQL  **Dataset:** Retail Shop Case Study, the classic 3-table set ([Kaggle amark720](https://www.kaggle.com/datasets/amark720/retail-shop-case-study-dataset); that page now returns *permission denied*, so the files come from the public mirror [mrinalcs/sql-retail-data-analysis](https://github.com/mrinalcs/sql-retail-data-analysis))  **Column profile:** [DATA_PROFILE.md](DATA_PROFILE.md)
 
