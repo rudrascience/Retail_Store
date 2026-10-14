@@ -1,25 +1,81 @@
 CREATE DATABASE retail_store;
 USE retail_store;
-SELECT * FROM customer;
-DESCRIBE customer;
 
-SELECT * FROM transactions;
+-- 1. Check the data Before Cleaning
+-- 1.A> Preview the data
+SELECT * FROM customer LIMIT 10;
+SELECT * FROM transactions LIMIT 10;
+SELECT * FROM prod_cat_info LIMIT 10;
 
-SELECT * FROM prod_cat_info;
+-- 1.B> Check the number of records
 
-# Change the format of the date as dd-mm-yyyy
-SELECT DATE_FORMAT(DOB, '%d%m%y') AS formatted_date
-FROM customer;
+SELECT COUNT(*) AS total_customers FROM customer;
+SELECT COUNT(*) AS total_transactions FROM transactions;
+SELECT COUNT(*) AS total_categories FROM prod_cat_info;
 
-SELECT date_format(tran_date, '%d%m%y') AS formatted_date
+-- 2. Handling the MISSING VALUES
+-- 2.A> For customer table
+
+SELECT SUM(CASE WHEN customer_id IS NULL THEN 1 ELSE 0 END) AS missing_customer_id,
+SUM(CASE WHEN DOB IS NULL THEN 1 ELSE 0 END) AS missing_DOB,
+SUM(CASE WHEN gender IS NULL THEN 1 ELSE 0 END) AS missing_gender,
+SUM(CASE WHEN city_code IS NULL THEN 1 ELSE 0 END) AS missing_city_code 
+FROM customer; 
+
+-- 2.B> For transactions table
+
+SELECT SUM(CASE WHEN transaction_id IS NULL THEN 1 ELSE 0 END) AS missing_transaction_id,
+SUM(CASE WHEN cust_id IS NULL THEN 1 ELSE 0 END) AS missing_cust_id,
+SUM(CASE WHEN tran_date IS NULL THEN 1 ELSE 0 END) AS missing_tran_date,
+SUM(CASE WHEN prod_subcat_code IS NULL THEN 1 ELSE 0 END) AS missing_prod_subcat_code,
+SUM(CASE WHEN prod_cat_code IS NULL THEN 1 ELSE 0 END) AS missing_prod_cat_code,
+SUM(CASE WHEN Qty IS NULL THEN 1 ELSE 0 END) AS missing_Qty,
+SUM(CASE WHEN Rate IS NULL THEN 1 ELSE 0 END) AS missing_Rate,
+SUM(CASE WHEN Tax IS NULL THEN 1 ELSE 0 END) AS missing_Tax,
+SUM(CASE WHEN total_amt IS NULL THEN 1 ELSE 0 END) AS missing_total_amt,
+SUM(CASE WHEN Store_type IS NULL THEN 1 ELSE 0 END) AS missing_Store_type
 FROM transactions;
 
+-- 2.C> For prod_cat_info table
 
-SELECT * FROM customer
-WHERE customer_Id IS NULL
-OR DOB IS NULL
-OR Gender IS NULL 
-OR city_code IS NULL;
+SELECT SUM(CASE WHEN prod_cat_code IS NULL THEN 1 ELSE 0 END) AS missing_prod_cat_code,
+SUM(CASE WHEN prod_cat IS NULL THEN 1 ELSE 0 END) AS missing_prod_cat,
+SUM(CASE WHEN prod_sub_cat_code IS NULL THEN 1 ELSE 0 END) AS missing_prod_sub_cat_code,
+SUM(CASE WHEN prod_subcat IS NULL THEN 1 ELSE 0 END) AS missing_prod_subcat 
+FROM prod_cat_info; 
+
+-- 3. Check for DUPLICATE Records
+
+SELECT
+transaction_id, cust_id, tran_date, prod_cat_code, prod_subcat_code, Qty, Rate,Tax, total_amt, Store_type,
+COUNT(*) AS duplicate_records
+FROM transactions
+GROUP BY
+transaction_id, cust_id, tran_date, prod_cat_code, prod_subcat_code, Qty, Rate,Tax, total_amt, Store_type
+HAVING COUNT(*) > 1 ;
+
+-- 4. Removing DUPLICATE rows
+
+DELETE FROM transactions
+WHERE transaction_id IN(
+SELECT transaction_id FROM
+(SELECT transaction_id, ROW_NUMBER() OVER(PARTITION BY
+transaction_id, cust_id, tran_date, prod_cat_code, prod_subcat_code, Qty, Rate,Tax, total_amt, Store_type
+ORDER BY transaction_id) AS rn
+FROM transactions)
+AS duplicate_rows
+WHERE rn > 1 );
+
+
+
+-- 5. Change the format of the date as dd-mm-yyyy
+
+SELECT tran_date AS old_date,
+STR_TO_DATE(tran_date, '%d-%m-%y') AS converted_date
+FROM transactions
+LIMIT 20 ;
+
+-- 6. ANALYSIS (EDA with SQL)
 
 -- Q.1> Finding the total number of rows in 3 tables each in the database 
 
@@ -144,3 +200,70 @@ ON t.prod_cat_code = p.prod_cat_code
 GROUP BY category
 ORDER BY return_rate_pct DESC
 LIMIT 1 ;
+
+-- Q.13> Find the time range.
+
+SELECT 
+MIN(STR_TO_DATE(tran_date, '%d-%m-%y')) AS start_date,
+MAX(STR_TO_DATE(tran_date, '%d-%m-%y')) AS end_date,
+DATEDIFF(
+MIN(STR_TO_DATE(tran_date, '%d-%m-%y')),
+MAX(STR_TO_DATE(tran_date, '%d-%m-%y'))
+)AS total_days,
+TIMESTAMPDIFF(
+MONTH,
+MIN(STR_TO_DATE(tran_date, '%d-%m-%y')),
+MAX(STR_TO_DATE(tran_date, '%d-%m-%y'))
+)AS total_months,
+TIMESTAMPDIFF(
+YEAR,
+MIN(STR_TO_DATE(tran_date, '%d-%m-%y')),
+MAX(STR_TO_DATE(tran_date, '%d-%m-%y'))
+)AS total_years
+
+FROM transactions
+WHERE STR_TO_DATE(tran_date, '%d-%m-%y') IS NOT NULL ;
+
+-- Q.14> Find Month on Month Revenue.
+
+WITH monthly_revenue AS(
+SELECT
+DATE_FORMAT(STR_TO_DATE(tran_date, '%d-%m-%y'), '%y-%m')
+AS month,
+SUM(total_amt) AS revenue
+FROM transactions
+WHERE STR_TO_DATE(tran_date, '%d-%m-%y') IS NOT NULL
+GROUP BY DATE_FORMAT(STR_TO_FORMAT(tran_date, '%d-%m-%y'), '%y-%m')
+),
+revenue_comparision AS(
+SELECT
+month, revenue, LAG(revenue) OVER(ORDER BY month) AS previous_month_revenue
+FROM monthly_revenue
+)
+SELECT
+month, revenue, previous_month_revenue,
+ROUND((revenue-previous_month_revenue)/NULLIF(previous_month_revenue,0)*100,2)
+AS mom_growth_percentage
+FROM revenue_comparison
+ORDER BY month ;
+
+-- Q.15> Calculate RFM values.
+
+WITH customer_rfm AS(
+SELECT cust_id,
+MAX(STR_TO_DATE(tran_date, '%d-%m-%y')) AS last_purchase_date,
+COUNT(DISTINCT transaction_id) AS frequency,
+SUM(total_amt) AS monetary
+FROM transactions
+WHERE STR_TO_DATE(tran_date, '%d-%m-%y') IS NOT NULL
+GROUP BY cust_id
+)
+SELECT cust_id, last_purchase_date,
+DATEDIFF(
+(SELECT MAX(STR_TO_DATE(tran_date, '%d-%m-%y')) FROM transactions),
+last_purchase_date
+) AS recency_days,
+frequency,
+ROUND(monetary,2) AS monetary
+FROM customer_rfm
+ORDER BY monetary DESC;
